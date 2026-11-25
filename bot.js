@@ -1,12 +1,12 @@
 const { Telegraf } = require('telegraf');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const DEEPSEEK_MODEL = 'deepseek-flash';
 
 if (!BOT_TOKEN) throw new Error('Missing BOT_TOKEN env var');
-if (!GEMINI_API_KEY) throw new Error('Missing GEMINI_API_KEY env var');
+if (!DEEPSEEK_API_KEY) throw new Error('Missing DEEPSEEK_API_KEY env var');
 
 const bot = new Telegraf(BOT_TOKEN);
 
@@ -118,7 +118,7 @@ async function getAIReply(chatId, userText, userName, imagePart, searchContext, 
 
   const history = chatHistory.get(chatId);
 
-  const contents = history.map((m, i) => {
+  const messages = history.map((m, i) => {
     const isLastMessage = i === history.length - 1;
     let textContent = m.content;
     if (isLastMessage && m.role === 'user') {
@@ -128,30 +128,28 @@ async function getAIReply(chatId, userText, userName, imagePart, searchContext, 
         textContent += `\n\n[Live search results: none found / search unavailable]`;
       }
     }
-    const parts = [{ text: textContent }];
     if (isLastMessage && m.role === 'user' && imagePart) {
-      parts.push(imagePart);
+      return { role: m.role, content: [{ type: 'text', text: textContent }, imagePart] };
     }
-    return {
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts,
-    };
+    return { role: m.role, content: textContent };
   });
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
   const requestBody = JSON.stringify({
-    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents,
-    generationConfig: { maxOutputTokens: 800 },
+    model: DEEPSEEK_MODEL,
+    messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+    thinking: { type: 'disabled' },
+    max_tokens: 800,
   });
 
-  // Google sometimes returns 503/500 during demand spikes, so retry a couple of times
+  // Retry temporary DeepSeek server errors.
   let res;
   for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch(url, {
+    res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
       body: requestBody,
     });
     if (res.ok || (res.status !== 503 && res.status !== 500)) break;
@@ -159,18 +157,17 @@ async function getAIReply(chatId, userText, userName, imagePart, searchContext, 
   }
 
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${errText}`);
+    throw new Error(`DeepSeek API error ${res.status}`);
   }
 
   const data = await res.json();
-  const reply = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('\n').trim() || '';
+  const reply = data.choices?.[0]?.message?.content?.trim() || '';
 
   pushHistory(chatId, 'assistant', reply);
   return reply;
 }
 
-async function photoToGeminiPart(ctx, fileId) {
+async function photoToDeepSeekPart(ctx, fileId) {
   const fileLink = await ctx.telegram.getFileLink(fileId);
   const res = await fetch(fileLink.href || fileLink);
   if (!res.ok) {
@@ -182,16 +179,14 @@ async function photoToGeminiPart(ctx, fileId) {
   }
   const base64 = Buffer.from(arrayBuffer).toString('base64');
   return {
-    inline_data: {
-      mime_type: 'image/jpeg',
-      data: base64,
-    },
+    type: 'image_url',
+    image_url: { url: `data:image/jpeg;base64,${base64}` },
   };
 }
 
-// Fun fallback lines for when Google's servers are overloaded
+// Fun fallback lines for when DeepSeek is overloaded.
 const BUSY_REPLIES = [
-  "Google's servers just ghosted me 💀 give me a minute and ask again",
+  "DeepSeek's servers just ghosted me 💀 give me a minute and ask again",
   "Brain buffering... 🧠⏳ try me again in a minute",
   "Too many people talking to me at once, I'm not a god bro 😤 ask again in a minute",
   "Even legends need a chai break ☕ ask me again in a minute",
@@ -232,7 +227,7 @@ bot.on('message', async (ctx) => {
     if (hasPhoto) {
       const bestPhoto = photoArray[photoArray.length - 1];
       try {
-        imagePart = await photoToGeminiPart(ctx, bestPhoto.file_id);
+        imagePart = await photoToDeepSeekPart(ctx, bestPhoto.file_id);
       } catch (err) {
         console.warn('Photo download failed:', err.message);
         photoFailed = true;
@@ -255,8 +250,8 @@ bot.on('message', async (ctx) => {
     if (reply) await ctx.reply(reply, { reply_to_message_id: msg.message_id });
   } catch (err) {
     console.error('Error handling message:', err);
-    // If Google is overloaded or rate-limited, say so instead of going silent
-    if (/Gemini API error (503|500|429)/.test(String(err.message))) {
+    // If DeepSeek is overloaded or rate-limited, send a busy reply.
+    if (/DeepSeek API error (503|500|429)/.test(String(err.message))) {
       try {
         await ctx.reply(BUSY_REPLIES[Math.floor(Math.random() * BUSY_REPLIES.length)], {
           reply_to_message_id: ctx.message.message_id,

@@ -7,13 +7,13 @@ A Telegram bot that only speaks when @mentioned or replied to — replies like a
 2. Send `/setprivacy` to @BotFather → select your bot → choose **Disable**.
    (This lets it *see* group messages at all — it still only replies when mentioned, that logic is in the code.)
 
-## 2. Get an Anthropic API key
-From console.anthropic.com → get `ANTHROPIC_API_KEY`.
+## 2. Get a DeepSeek API key
+Create a key in the [DeepSeek API platform](https://platform.deepseek.com/api_keys) and set it as `DEEPSEEK_API_KEY`.
 
 ## 3. Test locally first
 ```
 npm install
-BOT_TOKEN=xxx ANTHROPIC_API_KEY=xxx node local.js
+BOT_TOKEN=xxx DEEPSEEK_API_KEY=xxx node local.js
 ```
 Add the bot to a test group, @mention it, confirm it replies.
 
@@ -23,7 +23,7 @@ vercel
 ```
 Then in the Vercel dashboard → Project → Settings → Environment Variables, add:
 - `BOT_TOKEN`
-- `ANTHROPIC_API_KEY`
+- `DEEPSEEK_API_KEY`
 
 Redeploy after adding env vars.
 
