@@ -1,6 +1,6 @@
 # Human Chat Bot
 
-A Telegram bot that only speaks when @mentioned or replied to — replies like a person, not a bot with commands.
+A Telegram bot that talks like a person when @mentioned or replied to. It also handles `/chart` requests.
 
 ## 1. Create the bot
 1. Message @BotFather on Telegram → `/newbot` → get your `BOT_TOKEN`.
@@ -34,6 +34,13 @@ curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://<your-verce
 ```
 
 Done — add the bot to any group, @mention it or reply to its messages, and it'll respond casually.
+
+## Price charts
+
+- `/chart BTC 4h` or `@RajanBot ETH/USD chart 15m` gets Kraken spot candles.
+- Send `/chart` followed by a DexScreener pair URL or GeckoTerminal pool URL to chart that exact pool with GeckoTerminal candles. You can add an interval such as `5m`, `1h`, or `1d`.
+- Use `/chart` with a CoinGecko coin URL for CoinGecko’s USD candle chart. Supported coin intervals are `30m`, `4h`, and `4d`. Set `COINGECKO_DEMO_API_KEY` to use a CoinGecko Demo API key when needed.
+- Each chart labels the source, interval, and most recent closed candle in UTC. Reply to a chart image to ask Rajan to analyze it.
 
 ## Notes
 - Chat history is in-memory per chat (last 10 messages) — resets on cold start. Fine for banter; swap in a KV store if you want persistence.

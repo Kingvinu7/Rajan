@@ -1,4 +1,6 @@
 const { Telegraf } = require('telegraf');
+const { CHART_HELP, ChartUnavailable, parseChartRequest, getMarketChart, chartCaption, trackerLink } = require('./market-chart');
+const { renderMarketChart } = require('./render-market-chart');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
@@ -277,6 +279,26 @@ const BUSY_REPLIES = [
   "സെർവർ ഇപ്പൊ ഫുൾ ബിസിയാ, ഒരു മിനിറ്റ് കഴിഞ്ഞ് വീണ്ടും ചോദിക്ക് 😅",
 ];
 
+async function replyWithMarketChart(ctx, request) {
+  const replyOptions = { reply_to_message_id: ctx.message.message_id };
+  if (request.source === 'help') {
+    await ctx.reply(CHART_HELP, replyOptions);
+    return;
+  }
+
+  try {
+    await ctx.sendChatAction('upload_photo');
+    const chart = await getMarketChart(request);
+    const source = renderMarketChart(chart);
+    await ctx.replyWithPhoto({ source, filename: 'rajan-chart.png' }, { ...replyOptions, caption: chartCaption(chart) });
+  } catch (err) {
+    console.warn('Chart request failed:', err.message);
+    const text = err instanceof ChartUnavailable ? err.message : 'I couldn’t grab that chart right now. Try again in a bit.';
+    const link = request.source === 'kraken' ? '' : trackerLink(request);
+    await ctx.reply(link ? `${text}\n${link}` : text, replyOptions);
+  }
+}
+
 bot.on('message', async (ctx) => {
   try {
     const msg = ctx.message;
@@ -295,11 +317,22 @@ bot.on('message', async (ctx) => {
     const botUsername = ctx.botInfo.username;
     const isMentioned = text.includes(`@${botUsername}`);
     const isReplyToBot = repliedMsg?.from?.id === ctx.botInfo.id;
+    const chartCommand = text.match(/^\/chart(?:@([a-z0-9_]+))?(?:\s|$)/i);
+    if (chartCommand?.[1] && chartCommand[1].toLowerCase() !== botUsername.toLowerCase()) return;
 
-    if (!isMentioned && !isReplyToBot) return;
+    if (!isMentioned && !isReplyToBot && !chartCommand) return;
 
     const cleanText = text.replace(new RegExp(`@${botUsername}`, 'gi'), '').trim();
     if (!cleanText && !hasPhoto) return;
+
+    const explicitChart = Boolean(chartCommand || /^\/chart(?:\s|$)/i.test(cleanText));
+    if (explicitChart || !hasPhoto) {
+      const chartRequest = parseChartRequest(cleanText, explicitChart);
+      if (chartRequest) {
+        await replyWithMarketChart(ctx, chartRequest);
+        return;
+      }
+    }
 
     await ctx.sendChatAction('typing');
     await new Promise((r) => setTimeout(r, 800 + Math.random() * 1500));
