@@ -3,6 +3,8 @@ const { createHash, createPublicKey, verify } = require('node:crypto');
 const expiresAt = Date.parse('2026-12-22T00:00:00+05:30');
 const seatPath = /^\/movies\/(?:coim|coimbatore)\/seat-layout\/ET00526290\/BWCB\/\d+\/20261221\/?$/i;
 const showtimePattern = /^(?:0?[1-9]|1[0-2]):[0-5]\d [AP]M$/;
+const testExpiresAt = Date.parse('2026-11-29T12:45:00+05:30');
+const testBookingUrl = 'https://in.bookmyshow.com/movies/coim/seat-layout/ET00523959/BWCB/56877/20261129';
 const deploymentScope = require('../dune-alert-public-scope.json');
 
 module.exports = async (req, res) => {
@@ -56,11 +58,21 @@ module.exports = async (req, res) => {
   } catch {
     return res.status(400).json({ error: 'Invalid booking link.' });
   }
-  if (bookingUrl.origin !== 'https://in.bookmyshow.com' || !seatPath.test(bookingUrl.pathname) ||
+  const isTest = alert.test === 'ramayana-imax';
+  if (isTest) {
+    if (Date.now() >= testExpiresAt) return res.status(410).json({ error: 'The Ramayana IMAX test expired.' });
+    if (bookingUrl.href !== testBookingUrl || alert.showtime !== '12:45 PM') {
+      return res.status(400).json({ error: 'Expected the verified Ramayana IMAX test show.' });
+    }
+  } else if (bookingUrl.origin !== 'https://in.bookmyshow.com' || !seatPath.test(bookingUrl.pathname) ||
     bookingUrl.username || bookingUrl.password || bookingUrl.search || bookingUrl.hash ||
     !showtimePattern.test(alert.showtime)) {
     return res.status(400).json({ error: 'Expected a December 21 Broadway IMAX seat link and showtime.' });
   }
+
+  const message = isTest
+    ? 'TEST booking alert for Ramayana IMAX 3D at Broadway Cinemas, Coimbatore, on 29 Nov at 12:45 PM IST.'
+    : `Dune: Part Three IMAX bookings are open for Monday, 21 Dec at Broadway Cinemas, Coimbatore. ${alert.showtime} IST`;
 
   try {
     const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -69,7 +81,7 @@ module.exports = async (req, res) => {
       body: JSON.stringify({
         chat_id: chatId,
         message_thread_id: topicId,
-        text: `${mention} Dune: Part Three IMAX bookings are open for Monday, 21 Dec at Broadway Cinemas, Coimbatore. ${alert.showtime} IST\n${bookingUrl.href}`,
+        text: `${mention} ${message}\n${bookingUrl.href}`,
         entities: [{ type: 'mention', offset: 0, length: mention.length }],
         link_preview_options: { is_disabled: true },
       }),
